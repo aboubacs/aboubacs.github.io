@@ -1,0 +1,115 @@
+<html>
+<head>
+<title>WebSocket and Audio Interaction</title>
+</head>
+<body>
+  <button id="startButton">Start Recording</button>
+<script>
+    const webSocket = new WebSocket('ws://localhost:8000/cce13b1a-30c9-4af4-8972-044f2ca4b775/bots/4eb33a4a-0222-48ef-8864-bfaf7102f4ed/demo_websocket_conversation');
+
+    let audioPlaying = false;
+    let currentAudio = null; // Reference to the current Audio object
+    let audioQueue = [];
+    let isNewMessage = true;
+
+    document.getElementById('startButton').addEventListener('click', function() {
+      navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        .then(stream => {
+          const mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'audio/webm',
+          });
+          mediaRecorder.addEventListener('dataavailable', event => {
+            if (event.data.size > 0) {
+              webSocket.send(event.data);
+            }
+          });
+          mediaRecorder.start(200);
+        });
+
+      this.disabled = true;
+    });
+
+    webSocket.onopen = event => {
+      console.log('info: connected to server');
+    };
+
+    webSocket.addEventListener("message", (event) => {
+      console.log("Message from server ", event.data);
+      const eventPayload = JSON.parse(event.data);
+        switch(eventPayload.event) {
+          case "play_audio":
+            queueAudio(eventPayload.audio);
+            break;
+          case "cancel_audio":
+            cancelAudio();
+            break;
+          case "text_transcribed":
+          case "utterance_transcribed":
+            updateTranscription(eventPayload.text);
+            break;
+          case "text_response":
+            showBotResponse(eventPayload.text);
+            break;
+        }
+    });
+
+    function playBase64Audio(base64String) {
+        if (!audioPlaying) {
+            let audio = new Audio();
+            audio.src = "data:audio/mpeg;base64," + base64String;
+            audio.addEventListener('ended', function() {
+                audioPlaying = false;
+                currentAudio = null; // Clear the current audio reference
+                if (audioQueue.length > 0) {
+                    playBase64Audio(audioQueue.shift());
+                }
+            });
+            audio.play();
+            audioPlaying = true;
+            currentAudio = audio; // Set the current audio reference
+        } else {
+            audioQueue.push(base64String);
+        }
+    }
+
+    function queueAudio(base64Audio) {
+      if (!audioPlaying) {
+        playBase64Audio(base64Audio);
+      } else {
+        audioQueue.push(base64Audio);
+      }
+    }
+
+    function cancelAudio() {
+      if (currentAudio) {
+        currentAudio.pause(); // Stop the currently playing audio
+        currentAudio.src = ""; // Clear the source to release resources
+        currentAudio = null; // Reset the current audio object
+      }
+      audioQueue = []; // Clear the queue
+      audioPlaying = false;
+    }
+
+    function updateTranscription(text) {
+      let transcriptionDiv;
+      if (isNewMessage) {
+        transcriptionDiv = document.createElement('div');
+        transcriptionDiv.className = 'user-transcription';
+        document.body.appendChild(transcriptionDiv);
+        isNewMessage = false;
+      } else {
+        transcriptionDiv = document.querySelector('.user-transcription:last-child');
+      }
+      transcriptionDiv.innerText = text;
+    }
+
+    function showBotResponse(text) {
+      const responseDiv = document.createElement('div');
+      responseDiv.className = 'bot-response';
+      responseDiv.innerText = text;
+      document.body.appendChild(responseDiv);
+      isNewMessage = true;
+    }
+</script>
+</body>
+</html>
